@@ -116,8 +116,8 @@
 
         try {
           const response = await axios.post(`${functionsUrl}`, request);
-          updateStatus("Payment created successfully");
-          return response.data;
+          updateStatus("Payment created successfully", response);
+          return response;
         } catch (error) {
           updateStatus("Error creating payment: " + error.message);
           console.error("Payment creation error:", error);
@@ -136,10 +136,7 @@
 
         // Redirect with status and message
         setTimeout(() => {
-          const redirectUrl = new URL(
-            "/payment-success",
-            window.location.origin
-          );
+          const redirectUrl = new URL("/payment-page", window.location.origin);
           redirectUrl.searchParams.set("status", status.toLowerCase());
           redirectUrl.searchParams.set("message", encodeURIComponent(message));
           window.location.href = redirectUrl.toString();

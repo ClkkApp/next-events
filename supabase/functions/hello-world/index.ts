@@ -55,33 +55,23 @@ Deno.serve(async (req) => {
       note: note, // Using ticketCount as note
     });
 
-    console.log("Square payment created:", paymentResponse.result);
+    console.log("Square payment createds:", paymentResponse.result);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        payment: paymentResponse.result,
-      }),
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
       },
-    );
+    });
   } catch (error: any) {
     console.error("Error creating Square payment:", error);
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      {
-        status: 400,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
+    return new Response(JSON.stringify({ ok: false, error: error.message }), {
+      status: 400,
+      headers: {
+            "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
       },
-    );
+    });
   }
 });
-
-
