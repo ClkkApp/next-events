@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cash App Payment</title>
+    <script id="square-script"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+      let appId,
+        locationId,
+        amountDollars,
+        userEmail,
+        functionsUrl,
+        squareScriptUrl;
+
+      function getUrlParameter(name) {
+        name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+        var regex = new RegExp("[\\?&]" + name + "=([^&#]*)");
+        var results = regex.exec(location.search);
+        return results === null
+          ? ""
+          : decodeURIComponent(results[1].replace(/\+/g, " "));
+      }
+
+      function updateStatus(message) {
+        const statusElement = document.getElementById("status-message");
+        statusElement.textContent = message;
+        console.log(message);
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        updateStatus("Loading parameters...");
+        appId = getUrlParameter("applicationId");
+        locationId = getUrlParameter("locationId");
+        amountDollars = getUrlParameter("amount") || "1.00";
+        userEmail = getUrlParameter("userEmail") || "";
+        functionsUrl = getUrlParameter("functionsUrl") || "";
+        squareScriptUrl = getUrlParameter("squareScriptUrl") || "";
+        eventTitle = getUrlParameter("eventTitle") || "";
+
+        updateStatus("Parameters loaded. Initializing Square script...");
+        console.log("Params:", {
+          appId,
+          locationId,
+          amountDollars,
+          userEmail,
+          functionsUrl,
+          squareScriptUrl,
+          eventTitle,
+        });
+
+        document.getElementById("payment-amount").textContent =
+          `$${amountDollars}`;
+
+        const squareScript = document.getElementById("square-script");
+        squareScript.src =
+          squareScriptUrl || "https://sandbox.web.squarecdn.com/v1/square.js";
+        squareScript.onload = () => {
+          updateStatus("Square script loaded. Initializing payment...");
+          setTimeout(initializePayment, 0);
+        };
+        squareScript.onerror = (error) => {
+          updateStatus(
+            "Failed to load Square script: " +
+              (error.message || "Unknown error")
+          );
+          console.error("Square script load error:", error);
+        };
+      });
+
+      function buildPaymentRequest(payments) {
+        updateStatus("Building payment request...");
+        return payments.paymentRequest({
+          countryCode: "US",
+          currencyCode: "USD",
+          total: {
+            amount: amountDollars,
+            label: "Total",
+          },
+          note: eventTitle,
+        });
+      }
+
+      async function initializeCashApp(payments) {
+        updateStatus("Initializing Cash App Pay...");
+        try {
+          const paymentRequest = buildPaymentRequest(payments);
+          const cashAppPay = await payments.cashAppPay(paymentRequest, {
+            redirectURL: window.location.href,
+            referenceId: "unique-id-" + Date.now(),
+          });
+          const buttonOptions = {
+            shape: "semiround",
+            width: "full",
+          };
+          await cashAppPay.attach("#cash-app-pay", buttonOptions);
+          updateStatus("Cash App Pay initialized");
+          return cashAppPay;
+        } catch (error) {
+          updateStatus("Error initializing Cash App Pay: " + error.message);
+          console.error("Cash App Pay initialization error:", error);
+          throw error;
+        }
+      }
+
+      async function createPayment(token) {
+        updateStatus("Creating payment...");
+        const request = {
+          sourceId: token,
+          amount: Math.round(parseFloat(amountDollars) * 100),
+          currency: "USD",
+          transactionId: "unique-id-" + Date.now(),
+          note: eventTitle,
+        };
+
+        try {
+          const response = await axios.post(`${functionsUrl}`, request);
+          updateStatus("Payment created successfully");
+          return response.data;
+        } catch (error) {
+          updateStatus("Error creating payment: " + error.message);
+          console.error("Payment creation error:", error);
+          throw error;
+        }
+      }
+
+      function displayPaymentResults(status, message) {
+        const statusContainer = document.getElementById(
+          "payment-status-container"
+        );
+        statusContainer.textContent = message;
+        statusContainer.className =
+          status === "SUCCESS" ? "success" : "failure";
+        statusContainer.style.display = "block";
+
+        // Redirect with status and message
+        setTimeout(() => {
+          const redirectUrl = new URL(
+            "/payment-success",
+            window.location.origin
+          );
+          redirectUrl.searchParams.set("status", status.toLowerCase());
+          redirectUrl.searchParams.set("message", encodeURIComponent(message));
+          window.location.href = redirectUrl.toString();
+        }, 2000); // Redirect after 2 seconds to allow user to see the status
+      }
+
+      async function initializePayment() {
+        updateStatus("Initializing payment...");
+        if (!window.Square) {
+          updateStatus("Square.js failed to load properly");
+          console.error("Square.js not found");
+          throw new Error("Square.js failed to load properly");
+        }
+
+        let payments;
+        try {
+          payments = window.Square.payments(appId, locationId);
+          updateStatus("Square payments initialized");
+        } catch (error) {
+          updateStatus(
+            "Failed to initialize Square payments: " + error.message
+          );
+          console.error("Square payments initialization error:", error);
+          displayPaymentResults(
+            "FAILURE",
+            "Failed to initialize payment system"
+          );
+          return;
+        }
+
+        let cashAppPay;
+        try {
+          cashAppPay = await initializeCashApp(payments);
+        } catch (error) {
+          updateStatus("Initializing Cash App Pay failed: " + error.message);
+          console.error("Cash App Pay initialization error:", error);
+          displayPaymentResults("FAILURE", "Failed to initialize Cash App Pay");
+          return;
+        }
+
+        if (cashAppPay) {
+          updateStatus("Cash App Pay ready");
+          cashAppPay.addEventListener(
+            "ontokenization",
+            async function ({ detail }) {
+              // Instead of disabling the button, we'll update the status
+              updateStatus("Processing payment...");
+
+              const tokenResult = detail.tokenResult;
+              if (tokenResult.status === "OK") {
+                try {
+                  const paymentResults = await createPayment(tokenResult.token);
+                  displayPaymentResults("SUCCESS", "Payment successful");
+                  console.debug("Payment Success", paymentResults);
+                } catch (error) {
+                  updateStatus("Payment failed: " + error.message);
+                  console.error("Payment error:", error);
+                  displayPaymentResults(
+                    "FAILURE",
+                    "Payment failed: " + error.message
+                  );
+                }
+              } else {
+                updateStatus(
+                  `Tokenization failed with status: ${tokenResult.status}`
+                );
+                if (tokenResult.errors) {
+                  console.error(
+                    "Tokenization errors:",
+                    JSON.stringify(tokenResult.errors)
+                  );
+                }
+                displayPaymentResults(
+                  "FAILURE",
+                  "Payment failed: Tokenization error"
+                );
+              }
+            }
+          );
+        }
+      }
+    </script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background-color: #031525; /* secondary.main */
+      }
+      #payment-container {
+        background-color: #0d2136; /* grey.800 */
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(166, 59, 171, 0.2); /* primary.main with opacity */
+        text-align: center;
+        color: #ffffff; /* common.white */
+        max-width: 400px;
+        width: 100%;
+      }
+      h2 {
+        color: #a63bab; /* primary.main */
+        margin-bottom: 1.5rem;
+      }
+      p {
+        margin-bottom: 1rem;
+      }
+      #payment-amount {
+        color: #ebf5ff; /* primary.lighter */
+        font-weight: bold;
+        font-size: 1.2em;
+      }
+      #payment-status-container,
+      #status-message {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+      #payment-status-container.success {
+        background-color: #10b981; /* success.main */
+        color: #ffffff; /* common.white */
+      }
+      #payment-status-container.failure {
+        background-color: #ef4444; /* error.main */
+        color: #ffffff; /* common.white */
+      }
+      #status-message {
+        background-color: #454f5b; /* grey.700 */
+        color: #dfe3e8; /* grey.300 */
+      }
+      #cash-app-pay {
+        margin-top: 1.5rem;
+      }
+      /* Style for Cash App button (approximation, actual styling may vary) */
+      #cash-app-pay button {
+        background-color: #a63bab; /* primary.main */
+        color: #ffffff; /* common.white */
+        border: none;
+        padding: 10px 20px;
+        border-radius: 20px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+      #cash-app-pay button:hover {
+        background-color: #8b329d; /* Slightly darker shade of primary.main */
+      }
+      /* Add some spacing and styling to the container */
+      #payment-container > * {
+        margin-bottom: 1rem;
+      }
+      #payment-container > *:last-child {
+        margin-bottom: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="payment-container">
+      <h2>Make a Payment with Cash App</h2>
+      <p>Amount: <span id="payment-amount"></span></p>
+      <div id="cash-app-pay"></div>
+      <div id="payment-status-container"></div>
+      <div id="status-message">Initializing...</div>
+    </div>
+  </body>
+</html>
