@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
       amount,
       note,
     });
-
+    //Access Token
     const squareClient = new Client({
       accessToken: Deno.env.get("SQUARE_ACCESS_TOKEN"),
       environment: Environment.Sandbox,
